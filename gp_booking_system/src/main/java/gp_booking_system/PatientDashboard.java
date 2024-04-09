@@ -71,24 +71,29 @@ public class PatientDashboard extends JFrame {
         setExtendedState(MAXIMIZED_BOTH);
         setLocationRelativeTo(null);
         setLayout(new BorderLayout());
+        getRootPane().setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10)); // Add border with 10-pixel padding
 
         // Labels to display system information and patient details
         JPanel headerPanel = new JPanel();
         headerPanel.setLayout(new BorderLayout());
         JLabel systemLabel = new JLabel("GP Booking System - Patient Dashboard");
         systemLabel.setHorizontalAlignment(JLabel.CENTER);
-        systemLabel.setFont(getFont());
+        systemLabel.setFont(new Font("Arial", Font.BOLD, 30));
         JLabel welcomeLabel = new JLabel("Welcome: " + loggedInPatient.getName());
+        welcomeLabel.setFont(new Font("Arial", Font.PLAIN,  24));
+        welcomeLabel.setBorder(BorderFactory.createBevelBorder((int) LEFT_ALIGNMENT));
         JLabel roleLabel = new JLabel("Role: " + loggedInPatient.getRole());
+        roleLabel.setFont(welcomeLabel.getFont());
+        roleLabel.setBorder(BorderFactory.createBevelBorder((int) RIGHT_ALIGNMENT));
         JLabel patientIdLabel = new JLabel("Patient ID: " + loggedInPatient.getPatientId());
-        JLabel genderLabel = new JLabel("Gender: " + loggedInPatient.getGender());
+        patientIdLabel.setFont(roleLabel.getFont());
+        patientIdLabel.setBorder(BorderFactory.createBevelBorder((int) RIGHT_ALIGNMENT));
 
         // Add labels to the header panel
-        headerPanel.add(systemLabel, BorderLayout.PAGE_START);
+        headerPanel.add(systemLabel, BorderLayout.CENTER);
         headerPanel.add(welcomeLabel, BorderLayout.LINE_START);
         headerPanel.add(roleLabel, BorderLayout.LINE_END);
         headerPanel.add(patientIdLabel, BorderLayout.PAGE_END);
-        headerPanel.add(genderLabel, BorderLayout.WEST);
         headerPanel.setBorder(BorderFactory.createLineBorder(Color.BLACK));
 
 
@@ -110,19 +115,25 @@ public class PatientDashboard extends JFrame {
         getContentPane().add(headerPanel, BorderLayout.NORTH);
         getContentPane().add(footerPanel, BorderLayout.SOUTH);
 
-        // Create buttons and add functionality
-        JButton changeDoctorButton = createButton("Change Doctor", e -> changeDoctor(e));
-        JButton arrangeBookingButton = createButton("Arrange Booking", e -> arrangeBooking(e));
-        JButton viewBookingsButton = createButton("View Bookings", e -> viewBookings(e));
-        JButton rescheduleBookingButton = createButton("Reschedule Booking", e -> rescheduleBooking(e, null));
-        JButton viewVisitDetailsButton = createButton("View Visit Details and Prescriptions", e -> viewVisitDetailsAndPrescriptions(e));
-        JButton viewAllDoctorsButton = createButton("View All Doctors", e -> viewAllDoctors(e));
-        JButton viewDoctorDetailsButton = createButton("View Doctor's Details", e -> viewDoctorDetails(e));
-        JButton viewMessagesButton = createButton("View Messages", e -> displayMessages());
-        JButton sendMessageButton = createButton("Send Message", e -> openMessageComposer(e));
-        JButton logoutButton = createButton("Logout", e -> logout(e));
 
-        JPanel panel = new JPanel(new GridLayout(10, 1));
+        Doctor doctor = getPatientDoctor(patient.getPatientId());
+        if (doctor == null) {
+            JOptionPane.showMessageDialog(null, "You do not have a doctor assigned. Please contact your healthcare provider.");
+            return;
+        }
+        // Create buttons and add functionality
+        JButton changeDoctorButton = createButton("Change Doctor", e -> changeDoctor(e), 18);
+        JButton arrangeBookingButton = createButton("Arrange Booking", e -> arrangeBooking(e), 18);
+        JButton viewBookingsButton = createButton("View Bookings", e -> viewBookings(e), 18);
+        JButton rescheduleBookingButton = createButton("Reschedule Booking", e -> rescheduleBooking(e, doctor), 18);
+        JButton viewVisitDetailsButton = createButton("View Visit Details and Prescriptions", e -> viewVisitDetailsAndPrescriptions(e), 18);
+        JButton viewAllDoctorsButton = createButton("View All Doctors", e -> viewAllDoctors(e), 18);
+        JButton viewDoctorDetailsButton = createButton("View Doctor's Details", e -> viewDoctorDetails(e), 18);
+        JButton viewMessagesButton = createButton("View Messages", e -> displayMessages(), 18);
+        JButton sendMessageButton = createButton("Send Message", e -> openMessageComposer(e), 18);
+        JButton logoutButton = createButton("Logout", e -> logout(e), 18);
+
+        JPanel panel = new JPanel(new GridLayout(5, 2));
         panel.add(viewMessagesButton);
         panel.add(sendMessageButton);
         panel.add(changeDoctorButton);
@@ -140,10 +151,53 @@ public class PatientDashboard extends JFrame {
 
     }
 
-    // Method to log access from a user
-     public static void logAccess(String patientId, String name, String functionalityAccessed) {
-        Sessions.logAccess(patientId, name, functionalityAccessed, name, functionalityAccessed);
+    // Method to log access to different functionalities
+    private void logAction(String action, String accessedFunctionality) {
+        // Concatenate the action and accessedFunctionality if it's not null
+        if (accessedFunctionality != null) {
+            action += ": " + accessedFunctionality;
+        }
+        actionsPerformed.add(action);
     }
+
+    // Example method to perform a patient action (e.g., accessing a feature)
+    public void accessFeature(String featureName) {
+        // Perform the action...
+        // Log the action
+        logAction("Accessed", featureName);
+    }
+
+    // Example method to perform another patient action
+    public void performAction(String actionName, String accessedFunctionality) {
+        // Perform the action...
+        // Log the action
+        logAction(actionName, accessedFunctionality); // Pass null for accessedFunctionality
+    }
+
+    // Method to log all actions on logout
+    private void logActionsOnLogout() {
+        // Format the current date and time
+        LocalDate currentDate = LocalDate.now();
+        LocalTime currentTime = LocalTime.now();
+
+        // Convert the formatted date and time to java.sql.Date and java.sql.Time objects
+        Date sqlDate = Date.valueOf(currentDate);
+        Time sqlTime = Time.valueOf(currentTime);
+
+        // Concatenate the list of actions into a single string
+        StringBuilder concatenatedActions = new StringBuilder();
+        for (String action : actionsPerformed) {
+            concatenatedActions.append(action).append(", "); // You can use any delimiter you prefer
+        }
+        String actionsString = concatenatedActions.toString();
+
+        // Log the concatenated actions string
+        Sessions.logAccess(loggedInPatient.getPatientId(), loggedInPatient.getName(), "Patient", actionsString, sqlDate.toString(), sqlTime.toString());
+
+        // Clear the list of actions
+        actionsPerformed.clear();
+    }
+
 
     public void displayMessages() {
         // Fetch messages from the database for the logged-in patient
@@ -1007,6 +1061,10 @@ public class PatientDashboard extends JFrame {
      * @param event The action event.
      */
     private void logout(ActionEvent event) {
+
+        // Log all actions performed during the session
+        logActionsOnLogout();
+        
         // Set the PatientDashboard invisible
         setVisible(false);
 
