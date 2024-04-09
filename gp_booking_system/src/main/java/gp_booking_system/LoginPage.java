@@ -466,7 +466,7 @@ public class LoginPage extends JFrame {
     private void openPatientDashboard(Patient patient) {
         PatientDashboard patientDashboard = new PatientDashboard(patient);
         // Display session details
-       // Sessions.displaySessionDetails(userId);
+        Sessions.displaySessionDetails(userId);
 
         patientDashboard.setVisible(true);
         dispose(); // Close the login page window

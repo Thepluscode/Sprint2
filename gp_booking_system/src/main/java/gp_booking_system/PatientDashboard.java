@@ -27,10 +27,17 @@ import java.util.List;
 public class PatientDashboard extends JFrame {
 
     private Patient patient;
+    private Patient loggedInPatient;
     private boolean isAvailable;
-    private Object Patient;
     private String userId;
     private ConnectionWrapper connectionWrapper;
+    private JList<Booking> bookingList;
+    //private BookingManagerGUI bookingManagerGUI;
+    private JComboBox<Booking> bookingComboBox;
+
+    private List<String> actionsPerformed;
+    private EmailService emailService;
+    private Sessions sessions;
 
     /**
      * Constructs a PatientDashboard object.
@@ -48,7 +55,16 @@ public class PatientDashboard extends JFrame {
         // Fetch the patient's ID from the database
         fetchPatientId(loggedInPatient.getPatientId());
         this.patient = loggedInPatient;
+        this.loggedInPatient = loggedInPatient;
+        this.isAvailable = true;
         this.connectionWrapper = connectionWrapper;
+        this.sessions = new Sessions();
+        this.emailService = new EmailService();
+
+        bookingList = new JList<>();
+
+        // Initialize the list of actions
+        actionsPerformed = new ArrayList<>();
 
         // Configure JFrame properties
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -98,7 +114,7 @@ public class PatientDashboard extends JFrame {
         JButton changeDoctorButton = createButton("Change Doctor", e -> changeDoctor(e));
         JButton arrangeBookingButton = createButton("Arrange Booking", e -> arrangeBooking(e));
         JButton viewBookingsButton = createButton("View Bookings", e -> viewBookings(e));
-        JButton rescheduleBookingButton = createButton("Reschedule Booking", e -> rescheduleBooking(e));
+        JButton rescheduleBookingButton = createButton("Reschedule Booking", e -> rescheduleBooking(e, null));
         JButton viewVisitDetailsButton = createButton("View Visit Details and Prescriptions", e -> viewVisitDetailsAndPrescriptions(e));
         JButton viewAllDoctorsButton = createButton("View All Doctors", e -> viewAllDoctors(e));
         JButton viewDoctorDetailsButton = createButton("View Doctor's Details", e -> viewDoctorDetails(e));
@@ -735,29 +751,129 @@ public class PatientDashboard extends JFrame {
 
 
     /**
-     * Opens a dialog to reschedule a booking.
-     *
-     * @param e The action event.
-     */
-    public void rescheduleBooking(ActionEvent e) {
-        // Code for rescheduling booking
-    }
+    * Open a dialog to reschedule a booking appointment.
+    * @param e
+    * @param doctor
+    */
+    public void rescheduleBooking(ActionEvent e, Doctor doctor) {
+        List<Booking> bookings = new ArrayList<>(); // Initialize the bookings list
 
-    // Assume you have a UI component like a JList to display bookings
-    private JList<Booking> bookingList;
+        // Prompt the user to enter the date and time for rescheduling
+        JPanel panel = new JPanel();
+        panel.setLayout(new GridLayout(2, 2));
 
-    // Method to get the selected booking from the UI
-    public Booking getSelectedBooking() {
-        // Get the index of the selected item in the JList
-        int selectedIndex = bookingList.getSelectedIndex();
+        JTextField dateField = new JTextField(" ");
+        JTextField timeField = new JTextField(" ");
 
-        // If no item is selected, return null
-        if (selectedIndex == -1) {
-            return null;
+        panel.add(new JLabel("Enter new date (YYYY-MM-DD):"));
+        panel.add(dateField);
+        panel.add(new JLabel("Enter new time (HH:MM):"));
+        panel.add(timeField);
+
+        int result = JOptionPane.showConfirmDialog(null, panel, "Enter New Date and Time", JOptionPane.OK_CANCEL_OPTION);
+        if (result == JOptionPane.OK_OPTION) {
+            String newDateString = dateField.getText();
+            String newTimeString = timeField.getText();
+
+            // Combine new date and time strings
+            String newDateTimeString = newDateString + " " + newTimeString;
+
+            // Check if input matches the expected format
+            try {
+                // Convert the newDateTimeString to a java.sql.Timestamp object
+                SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm");
+                java.util.Date parsedDate = dateFormat.parse(newDateTimeString);
+                java.sql.Timestamp timestamp = new java.sql.Timestamp(parsedDate.getTime());
+
+                // Retrieve the patient's bookings
+                try {
+                    bookings = getBookingsForPatient(patient.getPatientId()); // Assign the returned bookings
+                    if (bookings.isEmpty()) {
+                        JOptionPane.showMessageDialog(null, "No bookings found for this patient.");
+                        return;
+                    }
+
+                    // Let the patient select a booking to reschedule
+                    Booking selectedBooking = selectBooking(bookings);
+                    if (selectedBooking == null) {
+                        JOptionPane.showMessageDialog(null, "No booking selected.");
+                        return;
+                    }
+
+                    // Assuming 'timestamp' is a Timestamp object representing the new date and time
+                    LocalDateTime localDateTime = timestamp.toLocalDateTime();
+                    LocalDate newDate = localDateTime.toLocalDate();
+                    LocalTime newTime = localDateTime.toLocalTime();
+
+                    rescheduleBookingInDatabase(selectedBooking.getBookingNo(), newDate, newTime);
+
+
+                    JOptionPane.showMessageDialog(null, "Booking successfully rescheduled.");
+                    // Send confirmation messages to the patient and the doctor
+                    emailService.sendArrangeConfirmationMessages(doctor, newDateTimeString, patient);
+                    String senderId = loggedInPatient.getPatientId();
+                    String senderName = loggedInPatient.getName();
+                    sendConfirmationMessages(doctor, getName(), newDateTimeString, senderId, senderName);
+
+                } catch (SQLException ex) {
+                    ex.printStackTrace();
+                    JOptionPane.showMessageDialog(null, "Error retrieving patient's bookings.");
+                }
+            } catch (java.text.ParseException ex) {
+                JOptionPane.showMessageDialog(null, "Invalid date format. Please enter date and time in yyyy-MM-dd HH:mm format.");
+            }
         }
 
-        // Otherwise, return the selected booking
-        return bookingList.getModel().getElementAt(selectedIndex);
+        logAction("Accessed", "RescheduleBooking");
+    }
+
+    // Method to retrieve bookings for a patient from the database
+    public List<Booking> getBookingsForPatient(String patientId) throws SQLException {
+        List<Booking> bookings = new ArrayList<>();
+        String query = "SELECT * FROM bookings WHERE patient_id = ?";
+
+        try (Connection connection = DatabaseManager.getConnection();
+            PreparedStatement preparedStatement = connection.prepareStatement(query)) {
+            preparedStatement.setString(1, patientId);
+            ResultSet resultSet = preparedStatement.executeQuery();
+
+            // Iterate through the result set and populate the list of bookings
+            while (resultSet.next()) {
+                int bookingNo = resultSet.getInt("booking_no");
+                String patientName = resultSet.getString("patient_name");
+                String doctorName = resultSet.getString("doctor_name");
+                String appointmentDate = resultSet.getString("appointment_date");
+                String appointmentTime = resultSet.getString("appointment_time");
+
+                Booking booking = new Booking(bookingNo, patientName, doctorName, patientId, appointmentDate, appointmentTime);
+                bookings.add(booking);
+            }
+        }
+
+        return bookings;
+    }
+
+    // Method to reschedule a booking in the database
+    public void rescheduleBookingInDatabase(int bookingNo, LocalDate newDate, LocalTime newTime) {
+        String updateQuery = "UPDATE bookings SET appointment_date = ?, appointment_time = ? WHERE booking_no = ?";
+
+        try (Connection connection = DatabaseManager.getConnection();
+             PreparedStatement preparedStatement = connection.prepareStatement(updateQuery)) {
+            preparedStatement.setDate(1, Date.valueOf(newDate));
+            preparedStatement.setTime(2, Time.valueOf(newTime));
+            preparedStatement.setInt(3, bookingNo);
+
+            int rowsAffected = preparedStatement.executeUpdate();
+
+            if (rowsAffected > 0) {
+                System.out.println("Booking successfully rescheduled in the database.");
+            } else {
+                System.out.println("No booking found with the given booking number.");
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+            System.out.println("Error updating booking in the database: " + e.getMessage());
+        }
     }
 
     /**
